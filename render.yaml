@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: magicpin-vera-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /v1/healthz
+    envVars:
+      - key: VERA_TEAM_NAME
+        value: Team Anish
+      - key: VERA_TEAM_MEMBERS
+        value: anish
+      - key: VERA_CONTACT_EMAIL
+        value: anish@example.com
+      - key: VERA_VERSION
+        value: 1.0.0
+      - key: VERA_MODEL
+        value: deterministic_rules_v2
+      - key: VERA_APPROACH
+        value: Deterministic trigger-prioritized composer grounded in category+merchant+trigger+customer context.
+
