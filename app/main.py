@@ -113,25 +113,56 @@ def reply(req: ReplyRequest) -> ReplyResponse:
     intent = classify_reply_intent(req.message)
 
     if is_probable_auto_reply(req.message):
+        auto_count = int(conv.get("auto_reply_count") or 0) + 1
+        conv["auto_reply_count"] = auto_count
+        store.upsert_conversation(req.conversation_id, conv)
+        if auto_count >= 2:
+            return {
+                "action": "end",
+                "rationale": "Repeated auto-reply detected; ending thread to avoid spam loop.",
+            }
         return {
             "action": "wait",
-            "wait_seconds": 3600,
-            "rationale": "Detected likely WhatsApp auto-reply; backing off to avoid noisy loops.",
+            "wait_seconds": 900,
+            "rationale": "Detected likely WhatsApp auto-reply; short backoff before one final retry.",
         }
 
     if intent == "stop":
-        return {"action": "close", "rationale": "User opted out / asked to stop."}
+        return {"action": "end", "rationale": "User opted out / asked to stop."}
 
     if intent == "defer":
         return {"action": "wait", "wait_seconds": 1800, "rationale": "User asked to revisit later; backing off 30 minutes."}
 
     if intent == "accept":
         merchant = store.get_context("merchant", req.merchant_id)
+        customer = store.get_context("customer", req.customer_id) if req.customer_id else None
         owner_first = ""
+        merchant_name = req.merchant_id
+        customer_name = ""
         if merchant:
             owner_first = str(((merchant.payload.get("identity") or {}).get("owner_first_name")) or "")
-        prefix = f"Got it {owner_first}".strip() if owner_first else "Got it"
+            merchant_name = str(((merchant.payload.get("identity") or {}).get("name")) or req.merchant_id)
+        if customer:
+            customer_name = str(((customer.payload.get("identity") or {}).get("name")) or "")
         trigger_id = str(conv.get("trigger_id") or "")
+        # Route customer replies to customer-safe confirmation instead of merchant-facing ack.
+        if req.from_role == "customer" or req.customer_id:
+            name_prefix = f"{customer_name}, " if customer_name else ""
+            return {
+                "action": "send",
+                "body": f"Done {name_prefix}booking request noted with {merchant_name}. We will confirm slot details shortly.",
+                "cta": "none",
+                "rationale": "Customer accept routed to booking confirmation using customer context.",
+            }
+
+        prefix = f"Got it {owner_first}".strip() if owner_first else "Got it"
+        if "regulation_change" in trigger_id or "compliance" in trigger_id or "xray" in req.message.lower():
+            return {
+                "action": "send",
+                "body": "Noted. For old D-speed units: 1) verify current dose calibration, 2) migrate to E-speed/RVG workflow, 3) log SOP update before deadline. Want a printable checklist format?",
+                "cta": "yes_no",
+                "rationale": "Compliance-focused merchant reply gets concrete next steps instead of generic clarification.",
+            }
         return {
             "action": "send",
             "body": f"{prefix} — done. I’ll prepare the draft for {trigger_id or 'this signal'} now and send it in one message.",
@@ -140,6 +171,13 @@ def reply(req: ReplyRequest) -> ReplyResponse:
         }
 
     # Unknown: keep it low-friction, avoid multiple asks
+    if req.from_role == "customer" or req.customer_id:
+        return {
+            "action": "send",
+            "body": "Thanks — do you want me to proceed with this booking/request now? Reply yes or no.",
+            "cta": "yes_no",
+            "rationale": "Customer intent unclear; asking one explicit yes/no confirmation.",
+        }
     return {
         "action": "send",
         "body": "Quick yes/no so I can proceed — should I go ahead?",

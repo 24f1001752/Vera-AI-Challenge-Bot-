@@ -183,7 +183,7 @@ def main() -> None:
             },
         )
         _assert(code == 200, f"reply expected 200, got {code} {rep}")
-        _assert(rep.get("action") in ["send", "wait", "close"], f"invalid reply action: {rep}")
+        _assert(rep.get("action") in ["send", "wait", "end"], f"invalid reply action: {rep}")
 
 
 if __name__ == "__main__":

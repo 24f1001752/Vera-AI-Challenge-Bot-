@@ -100,7 +100,7 @@ def classify_reply_intent(text: str) -> str:
     Returns: "accept" | "defer" | "stop" | "unknown"
     """
     t = _normalize_text(text)
-    if any(k in t for k in ["stop", "unsubscribe", "dont message", "don't message", "do not message", "opt out", "remove me"]):
+    if any(k in t for k in ["stop", "unsubscribe", "dont message", "don't message", "do not message", "opt out", "remove me", "shut up", "go away", "leave me alone"]):
         return "stop"
     if any(k in t for k in ["later", "tomorrow", "next week", "remind", "busy", "after"]):
         return "defer"
@@ -278,9 +278,25 @@ def compose_action(
     if kind == "research_digest" and scope == "merchant":
         top_item_id = str(payload.get("top_item_id") or "")
         digest_items = category.get("digest") or []
-        item = next((x for x in digest_items if str(x.get("id")) == top_item_id), None)
+        item = next((x for x in digest_items if str(x.get("id")) == top_item_id), None) or (digest_items[0] if digest_items else None)
         if not item:
-            return None
+            title = "Weekly research digest update"
+            source = "category_digest"
+            summary = "One new practical item is relevant for your current patient/customer mix."
+            body = (
+                f"{prefix}, {title}. {summary} "
+                "Want me to send a concise 3-bullet brief you can use today?"
+            )
+            return _base_compose(
+                tid=tid,
+                trigger=trigger,
+                merchant=merchant,
+                body=body,
+                template_name="vera_research_digest_v1",
+                template_params=[owner_first, source],
+                cta="yes_no",
+                rationale="Research digest trigger fallback with one practical next step.",
+            )
         title = str(item.get("title") or "New research update")
         source = str(item.get("source") or "")
         trial_n = item.get("trial_n")
@@ -573,6 +589,7 @@ def compose_action(
         "customer_lapsed_soft",
         "customer_lapsed_hard",
         "chronic_refill_due",
+        "customer_lapsed",
     ]:
         customer = customers.get(customer_id or "")
         if not customer:
@@ -634,6 +651,30 @@ def compose_action(
             template_params=[owner_first, kind, city],
             cta="yes_no",
             rationale="Fallback merchant flow stays deterministic, grounded, and asks one low-friction CTA.",
+        )
+
+    if scope == "customer":
+        customer = customers.get(customer_id or "")
+        if not customer:
+            return None
+        consent = _safe_get(customer, ["preferences", "reminder_opt_in"], True)
+        if consent is False:
+            return None
+        cust_name = str(_safe_get(customer, ["identity", "name"], "there"))
+        body = (
+            f"Hi {cust_name}, {merchant_name} here. "
+            f"{offer_txt and (offer_txt + '. ')}"
+            "Want me to share one quick option for you right now?"
+        )
+        return _base_compose(
+            tid=tid,
+            trigger=trigger,
+            merchant=merchant,
+            body=body,
+            template_name="merchant_customer_outreach_v1",
+            template_params=[cust_name, merchant_name],
+            cta="yes_no",
+            rationale="Customer-scope fallback keeps outreach specific, consent-aware, and single-CTA.",
         )
 
     return None

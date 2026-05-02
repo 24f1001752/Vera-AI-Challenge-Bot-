@@ -73,7 +73,7 @@ class ReplyResponseWait(BaseModel):
 
 
 class ReplyResponseClose(BaseModel):
-    action: Literal["close"]
+    action: Literal["end"]
     rationale: str
 
 
