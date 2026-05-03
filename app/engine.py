@@ -100,11 +100,11 @@ def classify_reply_intent(text: str) -> str:
     Returns: "accept" | "defer" | "stop" | "unknown"
     """
     t = _normalize_text(text)
-    if any(k in t for k in ["stop", "unsubscribe", "dont message", "don't message", "do not message", "opt out", "remove me", "shut up", "go away", "leave me alone"]):
+    if any(k in t for k in ["stop", "unsubscribe", "dont message", "don't message", "do not message", "opt out", "remove me", "shut up", "go away", "leave me alone", "not interested", "useless", "don't bother"]):
         return "stop"
     if any(k in t for k in ["later", "tomorrow", "next week", "remind", "busy", "after"]):
         return "defer"
-    if any(k in t for k in ["yes", "ok", "okay", "sure", "send", "go ahead", "please do", "haan", "haa", "done"]):
+    if any(k in t for k in ["yes", "ok", "okay", "sure", "send", "go ahead", "please do", "haan", "haa", "done", "let's do it", "whats next", "what's next", "confirm"]):
         return "accept"
     return "unknown"
 
@@ -414,6 +414,88 @@ def compose_action(
             template_params=[owner_first, match, locality, city],
             cta="yes_no",
             rationale="Restaurant IPL trigger; grounded to match details and existing active offer; asks for one yes/no to draft a promo.",
+        )
+
+    if kind == "supply_alert" and scope == "merchant":
+        molecule = str(payload.get("molecule") or "key SKU")
+        affected_batches = payload.get("affected_batches") if isinstance(payload.get("affected_batches"), list) else []
+        batch_txt = ", ".join(str(x) for x in affected_batches[:2]) if affected_batches else ""
+        manufacturer = str(payload.get("manufacturer") or "")
+        body = (
+            f"{prefix}, urgent supply alert on {molecule}. "
+            f"{batch_txt and ('Affected batches: ' + batch_txt + '. ')}"
+            f"{manufacturer and ('Manufacturer: ' + manufacturer + '. ')}"
+            "Please quarantine stock and update substitutes list today. Want a 3-line customer advisory draft?"
+        )
+        return _base_compose(
+            tid=tid,
+            trigger=trigger,
+            merchant=merchant,
+            body=body,
+            template_name="vera_supply_alert_v1",
+            template_params=[owner_first, molecule, batch_txt],
+            cta="yes_no",
+            rationale="Supply alert includes molecule, affected batches, and a concrete same-day mitigation CTA.",
+        )
+
+    if kind == "gbp_unverified" and scope == "merchant":
+        verification_path = str(payload.get("verification_path") or "phone/postcard")
+        uplift = _pct(payload.get("estimated_uplift_pct"))
+        body = (
+            f"{prefix}, your Google Business profile still looks unverified. "
+            f"Expected uplift after verification: {uplift}. "
+            f"Fastest route: {verification_path}. Want a step-by-step checklist in 2 minutes?"
+        )
+        return _base_compose(
+            tid=tid,
+            trigger=trigger,
+            merchant=merchant,
+            body=body,
+            template_name="vera_gbp_unverified_v1",
+            template_params=[owner_first, verification_path, uplift],
+            cta="yes_no",
+            rationale="Unverified profile trigger is grounded to expected uplift and exact verification path.",
+        )
+
+    if kind == "cde_opportunity" and scope == "merchant":
+        credits = payload.get("credits")
+        fee = str(payload.get("fee") or "")
+        digest_item_id = str(payload.get("digest_item_id") or "latest webinar")
+        body = (
+            f"{prefix}, CDE opportunity: {digest_item_id}. "
+            f"{credits and (str(credits) + ' credits available. ')}"
+            f"{fee and ('Fee: ' + fee + '. ')}"
+            "Want me to draft a quick attendance + patient-education follow-up plan?"
+        )
+        return _base_compose(
+            tid=tid,
+            trigger=trigger,
+            merchant=merchant,
+            body=body,
+            template_name="vera_cde_opportunity_v1",
+            template_params=[owner_first, str(credits), fee],
+            cta="yes_no",
+            rationale="CDE trigger highlights credits/cost and offers a practical follow-up plan in one step.",
+        )
+
+    if kind == "category_seasonal" and scope == "merchant":
+        season = str(payload.get("season") or "this season")
+        trends = payload.get("trends") if isinstance(payload.get("trends"), list) else []
+        top_trends = ", ".join(str(t) for t in trends[:3]) if trends else ""
+        body = (
+            f"{prefix}, seasonal demand shift ({season}) is showing up now. "
+            f"{top_trends and ('Top movers: ' + top_trends + '. ')}"
+            "Should I draft one shelf + promo plan tailored to your locality this week?"
+        )
+        return _base_compose(
+            tid=tid,
+            trigger=trigger,
+            merchant=merchant,
+            body=body,
+            template_name="vera_category_seasonal_v1",
+            template_params=[owner_first, season, top_trends],
+            cta="yes_no",
+            rationale="Seasonal trigger composes from live trend shifts and asks for one concrete weekly plan.",
         )
 
     if kind in ["festival_upcoming", "competitor_opened", "milestone_reached", "review_theme_emerged", "curious_ask_due", "dormant_with_vera", "winback_eligible", "renewal_due", "active_planning_intent"] and scope == "merchant":
